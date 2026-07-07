@@ -8,7 +8,7 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(
   cors({
-    origin: "https://interview-gen-ai-frontend.vercel.app/",
+    origin: "https://interview-gen-ai-frontend.vercel.app",
     credentials: true,
   }),
 );
