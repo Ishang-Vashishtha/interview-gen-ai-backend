@@ -17,6 +17,11 @@ const authRouter = require("./routes/auth.routes");
 const interviewRouter=require("./routes/interview.routes")
 
 /* using all routes here*/
+app.get("/", (req, res) => {
+  res.json({
+    message: "Interview Gen AI Backend is running 🚀"
+  });
+});
 app.use("/api/auth", authRouter);
 app.use("/api/interview",interviewRouter)
 
