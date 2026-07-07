@@ -7,22 +7,25 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: [
+      "http://localhost:5173",
+      "https://interview-gen-ai-frontend.vercel.app",
+    ],
     credentials: true,
   }),
 );
 
 /* require all the routes here */
 const authRouter = require("./routes/auth.routes");
-const interviewRouter=require("./routes/interview.routes")
+const interviewRouter = require("./routes/interview.routes");
 
 /* using all routes here*/
 app.get("/", (req, res) => {
   res.json({
-    message: "Interview Gen AI Backend is running 🚀"
+    message: "Interview Gen AI Backend is running 🚀",
   });
 });
 app.use("/api/auth", authRouter);
-app.use("/api/interview",interviewRouter)
+app.use("/api/interview", interviewRouter);
 
 module.exports = app;
