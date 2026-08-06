@@ -25,5 +25,13 @@ app.get("/", (req, res) => {
 });
 app.use("/api/auth", authRouter);
 app.use("/api/interview", interviewRouter);
+app.use("/health", (req, res) => {
+  res.status(200).json({
+    success: true,
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    message: "Server is healthy and running smoothly.",
+  });
+});
 
 module.exports = app;
