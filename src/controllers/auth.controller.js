@@ -96,7 +96,13 @@ async function registerUserController(req, res) {
     });
   }
 
-  await sendRegistrationOtpEmail({ email, username, otp });
+  try {
+    await sendRegistrationOtpEmail({ email, username, otp });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to send OTP email. Please try again.",
+    });
+  }
 
   return res.status(201).json({
     message: "OTP sent to your email. Please verify to complete registration.",
@@ -119,15 +125,7 @@ async function verifyRegisterOtpController(req, res) {
   }
 
   if (user.isVerified) {
-    setAuthCookie(res, user);
-    return res.status(200).json({
-      message: "Email already verified",
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-      },
-    });
+    return res.status(400).json({ message: "Email already verified" });
   }
 
   if (
