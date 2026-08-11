@@ -11,6 +11,13 @@ const authRouter = Router();
 authRouter.post("/register", authController.registerUserController);
 
 /**
+ * @route POST /api/auth/verify-register-otp
+ * @description Verify registration OTP and complete sign up
+ * @access Public
+ */
+authRouter.post("/verify-register-otp", authController.verifyRegisterOtpController);
+
+/**
  * @route POST /api/auth/login
  * @description login user with email and password
  * @access Public

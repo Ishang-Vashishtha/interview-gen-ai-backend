@@ -1,8 +1,48 @@
 const userModel = require("../models/user.model");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 require("dotenv").config();
 const { redisClient } = require("../config/redis");
+const sendEmail = require("../utils/sendEmail");
+
+function generateOtp() {
+  return String(crypto.randomInt(100000, 1000000));
+}
+
+async function sendRegistrationOtpEmail({ email, username, otp }) {
+  await sendEmail({
+    to: email,
+    subject: "Verify your email address",
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
+        <h2>Verify your email</h2>
+        <p>Hi ${username},</p>
+        <p>Your verification code is:</p>
+        <div style="font-size: 28px; font-weight: 700; letter-spacing: 6px; margin: 16px 0;">${otp}</div>
+        <p>This code expires in 10 minutes.</p>
+      </div>
+    `,
+  });
+}
+
+function setAuthCookie(res, user) {
+  const token = jwt.sign(
+    {
+      id: user._id,
+      username: user.username,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "1d" },
+  );
+
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    maxAge: 24 * 60 * 60 * 1000,
+  });
+}
 
 /**
  *
@@ -18,41 +58,105 @@ async function registerUserController(req, res) {
       .json({ message: "please provide username, email, password" });
   }
 
-  const isUserAlreadyExists = await userModel.findOne({
-    $or: [{ username }, { email }],
-  });
+  const userByEmail = await userModel.findOne({ email });
+  const userByUsername = await userModel.findOne({ username });
 
-  if (isUserAlreadyExists) {
-    if (isUserAlreadyExists.username === username) {
-      return res.status(400).json({ message: "username already exist" });
-    }
-    return res.status(400).json({ message: "email already exist" });
+  if (
+    userByUsername &&
+    (!userByEmail ||
+      userByUsername._id.toString() !== userByEmail._id.toString())
+  ) {
+    return res.status(400).json({ message: "username already exist" });
   }
-  const hash = await bcrypt.hash(password, 10);
 
-  const user = await userModel.create({
-    username,
-    email,
-    password: hash,
+  const passwordHash = await bcrypt.hash(password, 10);
+  const otp = generateOtp();
+  const otpHash = await bcrypt.hash(otp, 10);
+
+  let user;
+
+  if (userByEmail) {
+    if (userByEmail.isVerified) {
+      return res.status(400).json({ message: "email already exist" });
+    }
+    userByEmail.username = username;
+    userByEmail.password = passwordHash;
+    userByEmail.isVerified = false;
+    userByEmail.otp = otpHash;
+    userByEmail.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    user = await userByEmail.save();
+  } else {
+    user = await userModel.create({
+      username,
+      email,
+      password: passwordHash,
+      isVerified: false,
+      otp: otpHash,
+      otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+  }
+
+  await sendRegistrationOtpEmail({ email, username, otp });
+
+  return res.status(201).json({
+    message: "OTP sent to your email. Please verify to complete registration.",
+    requiresVerification: true,
+    email: user.email,
   });
+}
 
-  const token = jwt.sign(
-    {
-      id: user._id,
-      username: user.username,
-    },
-    process.env.JWT_SECRET,
-    { expiresIn: "1d" },
-  );
-  res.cookie("token", token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "none",
-    maxAge: 24 * 60 * 60 * 1000, // 1 day
-  });
+async function verifyRegisterOtpController(req, res) {
+  const { email, otp } = req.body;
 
-  res.status(201).json({
-    message: "user register successfully",
+  if (!email || !otp) {
+    return res.status(400).json({ message: "please provide email and otp" });
+  }
+
+  const user = await userModel.findOne({ email });
+
+  if (!user) {
+    return res.status(404).json({ message: "user not found" });
+  }
+
+  if (user.isVerified) {
+    setAuthCookie(res, user);
+    return res.status(200).json({
+      message: "Email already verified",
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+      },
+    });
+  }
+
+  if (
+    !user.otp ||
+    !user.otpExpiresAt ||
+    user.otpExpiresAt.getTime() < Date.now()
+  ) {
+    return res
+      .status(400)
+      .json({
+        message: "OTP expired. Please register again to get a new code.",
+      });
+  }
+
+  const isOtpValid = await bcrypt.compare(String(otp), user.otp);
+
+  if (!isOtpValid) {
+    return res.status(400).json({ message: "Invalid OTP" });
+  }
+
+  user.isVerified = true;
+  user.otp = null;
+  user.otpExpiresAt = null;
+  await user.save();
+
+  setAuthCookie(res, user);
+
+  return res.status(200).json({
+    message: "Email verified successfully",
     user: {
       id: user._id,
       username: user.username,
@@ -76,25 +180,17 @@ async function loginUserController(req, res) {
       message: "User not found",
     });
   }
+  if (!user.isVerified) {
+    return res.status(403).json({
+      message: "Please verify your email before logging in",
+    });
+  }
   const isPasswordValid = await bcrypt.compare(password, user.password);
 
   if (!isPasswordValid) {
     return res.status(400).json({ message: "Invalid password" });
   }
-  const token = jwt.sign(
-    {
-      id: user._id,
-      username: user.username,
-    },
-    process.env.JWT_SECRET,
-    { expiresIn: "1d" },
-  );
-  res.cookie("token", token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "none",
-    maxAge: 24 * 60 * 60 * 1000, // 1 day
-  });
+  setAuthCookie(res, user);
   res.status(200).json({
     message: "User loggedIn successfully",
     user: {
@@ -154,6 +250,7 @@ async function getMecontroller(req, res) {
 
 module.exports = {
   registerUserController,
+  verifyRegisterOtpController,
   loginUserController,
   logoutUserController,
   getMecontroller,
