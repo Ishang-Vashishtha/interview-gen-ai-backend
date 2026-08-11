@@ -239,7 +239,20 @@ async function logoutUserController(req, res) {
  * @access Private
  */
 async function getMecontroller(req, res) {
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({
+      message: "Unauthorized",
+    });
+  }
+
   const user = await userModel.findById(req.user.id);
+
+  if (!user) {
+    return res.status(404).json({
+      message: "User not found",
+    });
+  }
+
   res.status(200).json({
     message: "User details fetched successfully",
     user: { id: user._id, username: user.username, email: user.email },
